@@ -17,7 +17,7 @@ Date.prototype.simpleDate = function () {
 const gcMaturitychartLocales = {
   "en": {
     "options": { "title": "Maturity chart" },
-    "product": "maturity",
+    "product": "Harvest Maturity",
     "description": { 
       "id": "ID",
       "parcel": "Parcel",
