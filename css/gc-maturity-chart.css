@@ -15,7 +15,7 @@
 .chartSpinner {
     position: relative;
     z-index: 1100;
-    top: 50%;
+    top: 20%;
     left: 10px;
 }
 

@@ -77,7 +77,11 @@ Vue.component('gc-maturity-chart', {
     gcWhiteLabel: {
       type: Boolean,
       default: false // true or false
-    }
+    },
+    gcZoomDomain:  {
+      type: String,
+      default: [] // array with ISO date strings, e.g. ['2018-03-01', '2018-09-01']
+    },
   },
   template: `<div :id="gcWidgetId" class="gc-maturity-chart">       
 
@@ -122,6 +126,8 @@ Vue.component('gc-maturity-chart', {
   data: function () {
     return {
       chart: undefined,
+      chartSelectedDate: null,
+      maxDaysOff: 7 // max days offset from querydate to activate selection
     }
   },
   computed: {
@@ -175,30 +181,46 @@ Vue.component('gc-maturity-chart', {
   /* when vue component is mounted (ready) on DOM node */
   mounted: function () {
 
-    //handle chart resizing
-    //window.addEventListener('resize', this.triggerResize);
-
-    //console.log(this);
-    //document.getElementById("chart_" + this.gcWidgetId).classList.add("is-hidden");
-    //document.getElementById("chartSpinner_" + this.gcWidgetId).classList.remove("is-hidden");
+    document.getElementById("chartSpinner_" + this.gcWidgetId).classList.remove("is-hidden");
 
     // listen on size change handler
     this.$root.$on("containerSizeChange", this.containerSizeChange);
 
-    /* init chart */
+    /* init empty chart */
     this.chart = bb.generate({
       bindto: '#chart_'+this.gcWidgetId,
-      // fixHeightResizing: true,
-      // size: {
-      //   width: this.chartWidth, 
-      //   height: this.chartHeight
-      // },
       data: {
+        x: 'x',
         columns: [],
-        type: this.gcMode, // 'gauge','pie' or 'donut'
+        empty: {
+          label: {
+              text: this.$t("chart.no_data_msg")
+          }
+        }
       },
-      legend: {
-        show: this.availableOptions.includes('legend'),
+      grid: {
+        x: {
+            show: true
+        },
+        y: {
+            show: true
+        }
+      },
+      axis: {
+        x: {
+            type: 'timeseries',
+            tick: {
+                fit: false,
+                format: "%e %b %y"
+            }
+        },
+        y: {
+            label: { text: '\n                                          \n\n',
+                    position: 'outer-top'},
+            max: 100,
+            min: 0,
+            padding: {top:10, bottom:0}
+        }
       }
     });
 
@@ -221,8 +243,43 @@ Vue.component('gc-maturity-chart', {
       this.createChartData();
     },
     gcSelectedDate(newValue, oldValue) {
-      let index = this.getClosestTimeSeriesIndex(this.gcMaturityData, newValue);
-      this.chart.select("maturity", [index], true);
+      console.debug("event - gcSelectedDate");
+
+      console.log(newValue, oldValue)
+      console.log(this.chartSelectedDate)
+
+      if (this.chartSelectedDate !== newValue) {
+        let index = this.getClosestTimeSeriesIndex(this.gcMaturityData, newValue, this.maxDaysOff);
+        
+        // if found zoom to this date
+        if (index >= 0) {
+          // this will also trigger onselected event on the chart!
+          this.chart.select("maturity", [index], true);
+        }
+        else {
+          this.chart.unselect("maturity");
+        }
+      }
+      else {
+        console.debug("ALREADY selected date found!!")
+        return; // already selected
+      }
+      console.log(this.chart.selected());
+    },
+    gcZoomDomain (newValue, oldValue) {
+      console.debug("event - gcZoomDomain");
+      // check for valid domain (fromDate < toDate)
+      if (new Date(newValue[0]).getTime() < new Date(newValue[1]).getTime()) {  
+        // TODO if date out of bounds reset or do nothing?
+        // currently it does nothing
+
+        // if (newValue[0] <= this.chart.axis.min().x) {
+
+        // }
+        this.chart.zoom(newValue);
+        // notify root also
+        this.$root.$emit('zoomDomainChange', newValue);
+      }
     }
   },
   methods: {
@@ -298,9 +355,13 @@ Vue.component('gc-maturity-chart', {
           colors: color_options,
           onselected: function(e, svgElement, b, c) {
             console.debug("gc-maturity-chart onselected()");
+
             if (e.x) {
-              // for queryDate of portfolio map
-              this.selectedDate = e.x.simpleDate(); 
+              // internal "click" date
+              this.chartSelectedDate = e.x.simpleDate();
+
+              // may be set from outside of this widget
+              this.selectedDate = e.x.simpleDate();
             }
             
           }.bind(this),
@@ -429,13 +490,22 @@ Vue.component('gc-maturity-chart', {
       });
       return i[0];
     },
-    getClosestTimeSeriesIndex: function (timeseries, queryDate) {
+    getClosestTimeSeriesIndex: function (timeseries, queryDate, maxDaysOff) {
       /* returns the nearest Date to the given parcel_id and query date */
-      const exactDate = this.getClosestDate(timeseries.map(d => new Date(d.date)), new Date(queryDate));
-      if (exactDate !== undefined) {
-        console.debug("closest date of given date "+ queryDate + " is "+ exactDate.simpleDate());
-        // find the index of the closest date in timeseries now
-        return timeseries.map(d => d.date).indexOf(exactDate.simpleDate());
+      console.debug("getClosestTimeSeriesIndex()");
+
+      const closestDate = this.getClosestDate(timeseries.map(d => new Date(d.date)), new Date(queryDate));
+
+      if (closestDate !== undefined) {
+        // don't return for values with distance > maxDaysOff days
+        if ( Math.abs(new Date(queryDate) - closestDate) <= (maxDaysOff * 86400000) ) {
+          console.debug("closest date of given date "+ queryDate + " is "+ closestDate.simpleDate() + " within " + maxDaysOff + " days");
+          // find the index of the closest date in timeseries now
+          return timeseries.map(d => d.date).indexOf(closestDate.simpleDate());
+        }
+        else {
+          console.debug("no closest date of given date "+ queryDate + " found within " + maxDaysOff + " days");
+        }
       }
     },  
     /* helper functions */
